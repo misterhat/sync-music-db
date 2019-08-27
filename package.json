@@ -1,0 +1,42 @@
+{
+  "name": "sync-music-db",
+  "version": "1.0.0",
+  "description": "keep music metadata in sync with a sqlite database",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/misterhat/sync-music-db.git"
+  },
+  "keywords": [
+    "sync",
+    "music",
+    "library",
+    "mp3",
+    "meta",
+    "id3",
+    "sqlite",
+    "db"
+  ],
+  "author": "Zorian Medwid <misterhat144@gmail.com>",
+  "license": "LGPL-3.0+",
+  "bugs": {
+    "url": "https://github.com/misterhat/sync-music-db/issues"
+  },
+  "homepage": "https://github.com/misterhat/sync-music-db#readme",
+  "devDependencies": {
+    "sqlite3": "^4.1.0"
+  },
+  "dependencies": {
+    "audio-extensions": "0.0.0",
+    "chunk": "0.0.2",
+    "music-metadata": "^4.3.1",
+    "node-watch": "^0.6.3",
+    "readdir-enhanced": "^4.0.2"
+  },
+  "peerDependencies": {
+    "sqlite3": "^4.1.0"
+  }
+}

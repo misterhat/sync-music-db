@@ -32,7 +32,7 @@ const db = new sqlite3.Database('./example.sqlite');
 
     console.time('sync');
 
-    syncMusicDb(db, './test/music')
+    syncMusicDb(db, './test/_music')
         .on('ready', () => console.timeEnd('sync'))
         .on('add', track => console.log(`${track.title} added`))
         .on('remove', path => console.log(`${path} removed`))

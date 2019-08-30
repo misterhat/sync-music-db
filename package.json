@@ -28,7 +28,6 @@
   "homepage": "https://github.com/misterhat/sync-music-db#readme",
   "devDependencies": {
     "copy-dir": "^1.2.0",
-    "fluent-ffmpeg": "^2.1.2",
     "rimraf": "^3.0.0",
     "sqlite3": "^4.1.0",
     "tape-async": "^2.3.0"

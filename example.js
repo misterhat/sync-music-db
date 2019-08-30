@@ -1,5 +1,5 @@
 const syncMusicDb = require('./');
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('sqlite3');
 
 const db = new sqlite3.Database('./example.sqlite');
 
@@ -8,7 +8,7 @@ const db = new sqlite3.Database('./example.sqlite');
 
     console.time('sync');
 
-    syncMusicDb(db, './test/Music')
+    syncMusicDb(db, './test/music')
         .on('ready', () => console.timeEnd('sync'))
         .on('add', track => console.log(`${track.title} added`))
         .on('remove', path => console.log(`${path} removed`))

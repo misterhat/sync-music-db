@@ -18,7 +18,7 @@ const CREATE_TABLE = fs.readFileSync(`${__dirname}${path.sep}tracks.sql`)
     .toString();
 
 // how many rows of data to buffer for database inserts and deletes
-const MAX_ROWS = 25;
+const MAX_ROWS = 50;
 
 // TODO maybe add an option to ignore this
 function isAudioFile(file) {
@@ -79,7 +79,10 @@ class SyncMusicDb extends EventEmitter {
         this.localMtimes = new Map();
 
         // is the initial sync done and are we ready to listen for new changes?
-        this.ready = false;
+        this.isReady = false;
+
+        // is dir up-to-date with db?
+        this.isSynced = false;
     }
 
     // remove all tracks that begin with directory
@@ -197,6 +200,9 @@ class SyncMusicDb extends EventEmitter {
             delay: 1000,
             recursive: true
         }, async (evt, name) => {
+            this.isSynced = false;
+            this.emit('synced', this.isSynced);
+
             try {
                 if (evt === 'update') {
                     const stats = await fs.promises.stat(name);
@@ -231,7 +237,7 @@ class SyncMusicDb extends EventEmitter {
 
                         await this.upsertDbTracks(toAdd);
                     } else {
-                        if (!isAudioFile(file.path)) {
+                        if (!isAudioFile(name)) {
                             return;
                         }
 
@@ -251,12 +257,17 @@ class SyncMusicDb extends EventEmitter {
                     this.emit('error', e);
                 }
             }
+
+            this.isSynced = true;
+            this.emit('synced', this.isSynced);
         });
     }
 
     // start!
     refresh() {
-        this.ready = false;
+        this.isReady = false;
+        this.isSynced = false;
+
         this.close();
 
         this.refreshLocalMtimes()
@@ -264,9 +275,13 @@ class SyncMusicDb extends EventEmitter {
             .then(() => this.addUpdatedTracks())
             .then(() => {
                 this.refreshWatcher();
-                this.ready = true;
-                this.emit('sync');
-                this.emit('ready');
+
+                this.watcher.on('ready', () => {
+                    this.isReady = true;
+                    this.isSynced = true;
+                    this.emit('synced', this.isSynced);
+                    this.emit('ready');
+                });
             })
             .catch(err => this.emit('error', err));
 
@@ -278,9 +293,14 @@ class SyncMusicDb extends EventEmitter {
             this.watcher.close();
             this.watcher = null;
         }
+
+        this.isReady = false;
+        this.isSynced = false;
+        this.emit('synced', this.isSynced);
     }
 };
 
 module.exports = (db, dir) => new SyncMusicDb(db, dir);
-module.exports.createTable = createTable;
 module.exports.TRACK_ATTRS = TRACK_ATTRS;
+module.exports.createTable = createTable;
+module.exports.getMetaData = getMetaData;

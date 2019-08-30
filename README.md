@@ -7,15 +7,23 @@ database. watches a directory for changes, and updates a sqlite table with
 relevant id3 (or [other metadata formats](
 https://github.com/borewit/music-metadata#support-for-audio-file-types)).
 
+this module is intended to be used with media players, but is appropriate for
+anything that relies on a music library.
+
 ## install
 
     $ npm install sync-music-db sqlite3
+
+[sqlite3](https://www.npmjs.com/package/sqlite3) is a
+[peerDependency](https://docs.npmjs.com/files/package.json#peerdependencies).
+this module doesn't explicitly `require` it, but it takes a sqlite3 `db`
+instance in its constructor.
 
 ## example
 
 ```javascript
 const syncMusicDb = require('sync-music-db');
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('sqlite3');
 
 const db = new sqlite3.Database('./example.sqlite');
 
@@ -24,7 +32,7 @@ const db = new sqlite3.Database('./example.sqlite');
 
     console.time('sync');
 
-    syncMusicDb(db, './Music')
+    syncMusicDb(db, './test/music')
         .on('ready', () => console.timeEnd('sync'))
         .on('add', track => console.log(`${track.title} added`))
         .on('remove', path => console.log(`${path} removed`))
@@ -58,8 +66,8 @@ new changes.
 ### syncer.close()
 stop syncing and watching `dir`.
 
-### syncer.on('sync', () => {})
-`sqliteDb` is up-to-date with `dir`.
+### syncer.on('synced', isSynced => {})
+is `sqliteDb` up-to-date with `dir`?
 
 ### syncer.on('ready', () => {})
 the initial sync has finished (from a `.refresh` call).
@@ -70,8 +78,11 @@ the initial sync has finished (from a `.refresh` call).
 ### syncer.on('remove', path => {})
 `path` has been removed.
 
-### syncer.ready
-a `Boolean` describing whether `syncer` is watching `dir`.
+### syncer.isReady
+is `syncer` listening to live `dir` changes (after initial scan)?
+
+### syncer.isSynced
+is all the metadata from `dir` stored in `db`?
 
 ## license
 LGPL-3.0+

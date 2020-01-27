@@ -1,12 +1,11 @@
+const SyncMusicDb = require('../');
 const copydir = require('copy-dir');
 const fs = require('fs');
 const path = require('path');
 const readdir = require('readdir-enhanced');
 const rimrafSync = require('rimraf').sync;
-const sqlite3 = require('sqlite3').verbose();
-const syncMusicDb = require('../');
+const sqlite = require('sqlite');
 const test = require('tape-async');
-const { promisify } = require('util');
 
 const MUSIC_DIR = `${__dirname}${path.sep}_music`;
 const TMP_DIR = `${__dirname}${path.sep}music`;
@@ -20,6 +19,8 @@ const MUSTARD = Buffer.from('Mustard');
 const MUSTARD_FILE = `${ABBEY_ROAD}${path.sep}` +
     'The Beatles - Abbey Road - 11 - Mean Mr. Mustard.mp3';
 const MUSTARD_POS = 0x2e;
+
+const TIMEOUT = 10000;
 
 function removeDb() {
     try {
@@ -44,13 +45,6 @@ fs.mkdirSync(TMP_DIR);
 
 // copy the music to a new directory so we can modify the files
 copydir.sync(MUSIC_DIR, TMP_DIR);
-
-const db = new sqlite3.Database(DB_FILE);
-const dbAll = promisify(db.all.bind(db));
-const dbEach = promisify(db.each.bind(db));
-const dbRun = promisify(db.run.bind(db));
-
-const syncer = syncMusicDb(db, TMP_DIR);
 
 function afterReady(syncer) {
     return new Promise(resolve => syncer.once('ready', resolve));
@@ -78,132 +72,157 @@ function afterRemove(syncer, sP) {
     });
 }
 
-test('createTable creates tracks table with TRACK_ATTRS', async t => {
-    await syncMusicDb.createTable(db);
+(async () => {
+    const db = await sqlite.open(DB_FILE);
+    const syncer = new SyncMusicDb({ db, dir: TMP_DIR });
 
-    const columns = (await dbAll('pragma table_info(tracks)')).map(row => {
-        return row.name;
-    });
+    test('syncer.createTable() creates tracks table with attrs', async t => {
+        await syncer.createTable();
 
-    for (const attr of syncMusicDb.TRACK_ATTRS) {
-        if (columns.indexOf(attr) < 0) {
-            t.fail(`"${column}" not found in tracks table`);
-        }
-    }
-});
+        const columns = (await db.all('pragma table_info(tracks)')).map(row => {
+            return row.name;
+        });
 
-test('syncer.refresh() populates tracks table', async t => {
-    t.timeoutAfter(10000);
-    syncer.on('error', err => t.error(err));
-
-    t.notOk(await dbRun('select 1 from tracks'), 'initially empty');
-    t.notOk(syncer.isReady, 'isReady is false');
-
-    syncer.refresh();
-    await afterReady(syncer);
-
-    t.ok(syncer.isReady, 'isReady is true');
-
-    const files = readdir.sync.stat(TMP_DIR, { basePath: TMP_DIR, deep: true });
-    const fileMap = new Map();
-
-    for (const file of files) {
-        fileMap.set(file.path, Math.floor(file.mtimeMs));
-    }
-
-    syncer.close();
-
-    const nonMediaTracks =
-        await dbAll(`select 1 from tracks where path like "%not-music.txt"`);
-
-    t.notOk(nonMediaTracks.length, 'syncer did not sync non-media file');
-
-    await dbEach('select path as p, mtime from tracks', (err, { p, mtime }) => {
-        const fileMtime = fileMap.get(p);
-
-        if (!fileMtime) {
-            t.fail(`${p} not found on local filesystem`);
-        } else if (fileMtime !== mtime) {
-            t.fail(`${p} database mtime (${mtime}) does not match ` +
-                `filesystem's (${fileMtime})`);
-        } else {
-            t.pass(`${path.basename(p)} is on filesystem with correct mtime`);
+        for (const attr of SyncMusicDb.TRACK_ATTRS) {
+            if (columns.indexOf(attr) < 0) {
+                t.fail(`"${column}" not found in tracks table`);
+            }
         }
     });
 
-    syncer.removeAllListeners();
-});
+    test('syncer.refresh() populates tracks table', async t => {
+        t.timeoutAfter(TIMEOUT);
+        syncer.on('error', err => t.error(err));
 
-test('syncer responds to metadata changes', async t => {
-    t.timeoutAfter(5000);
-    syncer.on('error', err => t.error(err));
+        t.notOk((await db.all('select 1 from tracks')).length,
+            'initially empty');
+        t.notOk(syncer.isReady, 'isReady is false');
 
-    const updateTitle = title => {
-        const fd = fs.openSync(MUSTARD_FILE, 'r+');
-        fs.writeSync(fd, title, 0, title.length, MUSTARD_POS);
-        fs.closeSync(fd);
-    };
+        syncer.refresh();
+        await afterReady(syncer);
 
-    const getTitle = async () => {
-        try {
-            return (await dbAll('select title from tracks where path = ?',
-                MUSTARD_FILE))[0].title;
-        } catch (e) {
-            t.error(e);
+        t.ok(syncer.isReady, 'isReady is true');
+
+        const files = readdir.sync(TMP_DIR, {
+            basePath: TMP_DIR,
+            deep: true,
+            stats: true
+        });
+
+        const fileMap = new Map();
+
+        for (const file of files) {
+            fileMap.set(file.path, Math.floor(file.mtimeMs));
         }
-    };
 
-    updateTitle(KETCHUP);
-    syncer.refresh();
-    await afterReady(syncer);
+        await syncer.close();
 
-    t.equals(await getTitle(), 'Mean Mr. Ketchup',
-        'syncer updated metadata after .refresh()');
+        const nonMediaTracks =
+            await db.all('select 1 from tracks where path like' +
+                '"%not-music.txt"');
 
-    updateTitle(MUSTARD);
-    await afterAddTrack(syncer, MUSTARD_FILE);
-    syncer.close();
+        t.notOk(nonMediaTracks.length, 'syncer did not sync non-media file');
 
-    t.equals(await getTitle(), 'Mean Mr. Mustard',
-        'syncer updated metadata live');
+        await db.each('select path as p, mtime from tracks', (err, track) => {
+            if (err) {
+                return t.error(err);
+            }
 
-    syncer.removeAllListeners();
-});
+            const { p, mtime } = track;
+            const fileMtime = fileMap.get(p);
 
-test('syncer responds to additions and removals', async t => {
-    t.timeoutAfter(5000);
-    syncer.on('error', err => t.error(err));
+            if (!fileMtime) {
+                t.fail(`${p} not found on local filesystem`);
+            } else if (fileMtime !== mtime) {
+                t.fail(`${p} database mtime (${mtime}) does not match ` +
+                    `filesystem's (${fileMtime})`);
+            } else {
+                t.pass(`${path.basename(p)} is on filesystem with correct ` +
+                    'mtime');
+            }
+        });
 
-    const mustardContents = fs.readFileSync(MUSTARD_FILE);
+        syncer.removeAllListeners();
+    });
 
-    rimrafSync(ABBEY_ROAD);
-    syncer.refresh();
-    await afterReady(syncer);
+    test('syncer responds to metadata changes', async t => {
+        t.timeoutAfter(TIMEOUT);
+        syncer.on('error', err => t.error(err));
 
-    t.notOk((await dbAll('select 1 from tracks where path like ?',
-        `${ABBEY_ROAD}%`)).length, 'syncer removes tracks after .refresh()');
+        const updateTitle = title => {
+            const fd = fs.openSync(MUSTARD_FILE, 'r+');
+            fs.writeSync(fd, title, 0, title.length, MUSTARD_POS);
+            fs.closeSync(fd);
+        };
 
-    setImmediate(() => rimrafSync(ED_BUYS_HOUSES));
-    await afterRemove(syncer, ED_BUYS_HOUSES);
+        const getTitle = async () => {
+            try {
+                return (await db.all('select title from tracks where path = ?',
+                    MUSTARD_FILE))[0].title;
+            } catch (e) {
+                t.error(e);
+            }
+        };
 
-    t.notOk((await dbAll('select 1 from tracks where path like ?',
-        `${ED_BUYS_HOUSES}%`)).length, 'syncer removes tracks live');
+        updateTitle(KETCHUP);
+        syncer.refresh();
+        await afterReady(syncer);
 
-    const newMustardFile = `${__dirname}${path.sep}music${path.sep}mustard.mp3`;
+        t.equals(await getTitle(), 'Mean Mr. Ketchup',
+            'syncer updated metadata after .refresh()');
 
-    setImmediate(() => fs.writeFileSync(newMustardFile, mustardContents));
-    await afterAddTrack(syncer, newMustardFile);
+        updateTitle(MUSTARD);
+        await afterAddTrack(syncer, MUSTARD_FILE);
+        await syncer.close();
 
-    t.ok((await dbAll('select 1 from tracks where path = ?',
-        newMustardFile)).length, 'syncer adds tracks live');
+        t.equals(await getTitle(), 'Mean Mr. Mustard',
+            'syncer updated metadata live');
 
-    syncer.close();
-    syncer.removeAllListeners();
-});
+        syncer.removeAllListeners();
+    });
 
-test('teardown', t => {
-    db.close();
-    removeDb();
-    removeTmp();
-    t.end();
-});
+    test('syncer responds to additions and removals', async t => {
+        t.timeoutAfter(TIMEOUT);
+        syncer.on('error', err => t.error(err));
+
+        const mustardContents = fs.readFileSync(MUSTARD_FILE);
+
+        rimrafSync(ABBEY_ROAD);
+        syncer.refresh();
+        await afterReady(syncer);
+
+        t.notOk((await db.all(
+            'select 1 from tracks where path like ?',
+            `${ABBEY_ROAD}%`)).length,
+            'syncer removes tracks after .refresh()');
+
+        setImmediate(() => rimrafSync(ED_BUYS_HOUSES));
+        await afterRemove(syncer, ED_BUYS_HOUSES);
+
+        t.notOk((await db.all(
+            'select 1 from tracks where path like ?',
+            `${ED_BUYS_HOUSES}%`)).length,
+            'syncer removes tracks live');
+
+        const newMustardFile =
+            `${__dirname}${path.sep}music${path.sep}mustard.mp3`;
+
+        setImmediate(() => fs.writeFileSync(newMustardFile, mustardContents));
+        await afterAddTrack(syncer, newMustardFile);
+
+        t.ok((await db.all(
+            'select 1 from tracks where path = ?',
+            newMustardFile)).length,
+            'syncer adds tracks live');
+
+        await syncer.close();
+        syncer.removeAllListeners();
+    });
+
+    test('teardown', async t => {
+        await db.close();
+        removeDb();
+        removeTmp();
+        t.end();
+    });
+})();

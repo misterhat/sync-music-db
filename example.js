@@ -1,14 +1,15 @@
-const syncMusicDb = require('./');
-const sqlite3 = require('sqlite3');
-
-const db = new sqlite3.Database('./example.sqlite');
+const SyncMusicDb = require('./');
+const sqlite = require('sqlite');
 
 (async () => {
-    await syncMusicDb.createTable(db);
+    const db = await sqlite.open('./example.sqlite');
+    const syncMusicDb = new SyncMusicDb({ db, dir: '/home/zorian/Music' });
+
+    await syncMusicDb.createTable();
 
     console.time('sync');
 
-    syncMusicDb(db, './test/_music')
+    syncMusicDb
         .on('ready', () => console.timeEnd('sync'))
         .on('add', track => console.log(`${track.title} added`))
         .on('remove', path => console.log(`${path} removed`))

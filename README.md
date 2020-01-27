@@ -12,27 +12,28 @@ anything that relies on a music library.
 
 ## install
 
-    $ npm install sync-music-db sqlite3
+    $ npm install sync-music-db sqlite
 
-[sqlite3](https://www.npmjs.com/package/sqlite3) is a
+[sqlite](https://www.npmjs.com/package/sqlite) is a
 [peerDependency](https://docs.npmjs.com/files/package.json#peerdependencies).
-this module doesn't explicitly `require` it, but it takes a sqlite3 `db`
+this module doesn't explicitly `require` it, but it takes a sqlite `db`
 instance in its constructor.
 
 ## example
 
 ```javascript
-const syncMusicDb = require('sync-music-db');
-const sqlite3 = require('sqlite3');
-
-const db = new sqlite3.Database('./example.sqlite');
+const SyncMusicDb = require('./');
+const sqlite = require('sqlite');
 
 (async () => {
-    await syncMusicDb.createTable(db);
+    const db = await sqlite.open('./example.sqlite');
+    const syncMusicDb = new SyncMusicDb({ db, dir: '/home/zorian/Music' });
+
+    await syncMusicDb.createTable();
 
     console.time('sync');
 
-    syncMusicDb(db, './test/_music')
+    syncMusicDb
         .on('ready', () => console.timeEnd('sync'))
         .on('add', track => console.log(`${track.title} added`))
         .on('remove', path => console.log(`${path} removed`))
@@ -42,7 +43,7 @@ const db = new sqlite3.Database('./example.sqlite');
 ```
 
 ## api
-### syncMusicDb.TRACK\_ATTRS
+### SyncMusicDb.TRACK\_ATTRS
 the columns in the `tracks` table.
 
 ```javascript
@@ -52,36 +53,42 @@ the columns in the `tracks` table.
 ]
 ```
 
-### async syncMusicDb.createTable(sqliteDb)
+### syncMusicDb = new SyncMusicDb({ db, dir, tableName = 'tracks', delay = 1000, ignoreExt = true })
+create an `EventEmitter` to sync the specified `dir` directory to a
+[sqlite](https://www.npmjs.com/package/sqlite) `db` instance.
+
+`tableName` specifies which table has `SyncMusicDb.TRACK_ATTRS`.
+
+`delay` specifies how long to wait for file changes (in ms) before reading them.
+
+`ignoreExt` specifies whether to ignore non-media extensions.
+
+### async syncMusicDb.createTable()
 create the `tracks` table in the `sqliteDb` instance.
 
-### syncer = syncMusicDb(sqliteDb, dir)
-create an `EventEmitter` to sync the specified `dir` directory to a
-[sqlite3](https://www.npmjs.com/package/sqlite3) `db` instance.
-
-### syncer.refresh()
+### syncMusicDb.refresh()
 do an initial sync with the specified `dir` and begin watching it for
 new changes.
 
-### syncer.close()
+### async syncMusicDb.close()
 stop syncing and watching `dir`.
 
-### syncer.on('synced', isSynced => {})
+### syncMusicDb.on('synced', isSynced => {})
 is `sqliteDb` up-to-date with `dir`?
 
-### syncer.on('ready', () => {})
+### syncMusicDb.on('ready', () => {})
 the initial sync has finished (from a `.refresh` call).
 
-### syncer.on('add', track => {})
+### syncMusicDb.on('add', track => {})
 `track` has been added or updated.
 
-### syncer.on('remove', path => {})
+### syncMusicDb.on('remove', path => {})
 `path` has been removed.
 
-### syncer.isReady
-is `syncer` listening to live `dir` changes (after initial scan)?
+### syncMusicDb.isReady
+is `syncMusicDb` listening to live `dir` changes (after initial scan)?
 
-### syncer.isSynced
+### syncMusicDb.isSynced
 is all the metadata from `dir` stored in `db`?
 
 ## license

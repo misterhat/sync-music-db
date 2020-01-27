@@ -27,7 +27,7 @@ const sqlite = require('sqlite');
 
 (async () => {
     const db = await sqlite.open('./example.sqlite');
-    const syncMusicDb = new SyncMusicDb({ db, dir: '/home/zorian/Music' });
+    const syncMusicDb = new SyncMusicDb({ db, dir: './test/_music' });
 
     await syncMusicDb.createTable();
 
